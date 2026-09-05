@@ -51,3 +51,17 @@ test('a bad target is a clean error, not a stack trace', async () => {
   assert.equal(r.code, 2);
   assert.match(r.err, /expected <host:port>/);
 });
+
+test('a missing scenario file is a usage error, not a stack trace', async () => {
+  const r = await runCli(['connect', '127.0.0.1:1', '--scenario', '/nonexistent.json']);
+  assert.equal(r.code, 2, r.out + r.err);
+  assert.match(r.err, /cannot read scenario/);
+  assert.doesNotMatch(r.err, /^\s+at /m);
+});
+
+test('an unknown flag is a usage error, not a stack trace', async () => {
+  const r = await runCli(['connect', '127.0.0.1:1', '--bogus']);
+  assert.equal(r.code, 2, r.out + r.err);
+  assert.match(r.err, /bogus|unknown option/i);
+  assert.doesNotMatch(r.err, /^\s+at /m);
+});

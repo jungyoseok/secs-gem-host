@@ -34,25 +34,43 @@ function parseTarget(s: string | undefined): { host: string; port: number } {
   return { host: m[1], port: Number(m[2]) };
 }
 
+/** Read + parse a scenario file before we touch the network, so a typo is a usage error. */
+function loadScenario(path: string): ScenarioStep[] {
+  try {
+    const steps = JSON.parse(fs.readFileSync(path, 'utf8'));
+    if (!Array.isArray(steps)) throw new Error('expected a JSON array of steps');
+    return steps as ScenarioStep[];
+  } catch (e) {
+    fail(`cannot read scenario ${path}: ${(e as Error).message}`);
+  }
+}
+
 async function main(): Promise<void> {
-  const { values, positionals } = parseArgs({
-    allowPositionals: true,
-    options: {
-      'device-id': { type: 'string', default: '0' },
-      passive: { type: 'boolean', default: false },
-      report: { type: 'boolean', default: false },
-      scenario: { type: 'string' },
-      model: { type: 'string' },
-      quiet: { type: 'boolean', default: false },
-      linktest: { type: 'string', default: '30' },
-      t3: { type: 'string', default: String(DEFAULT_TIMERS.t3) },
-      t5: { type: 'string', default: String(DEFAULT_TIMERS.t5) },
-      t6: { type: 'string', default: String(DEFAULT_TIMERS.t6) },
-      t7: { type: 'string', default: String(DEFAULT_TIMERS.t7) },
-      t8: { type: 'string', default: String(DEFAULT_TIMERS.t8) },
-      help: { type: 'boolean', default: false, short: 'h' },
-    },
-  });
+  // parseArgs is strict: an unknown flag throws, and that is a usage error, not a crash.
+  const { values, positionals } = (() => {
+    try {
+      return parseArgs({
+        allowPositionals: true,
+        options: {
+          'device-id': { type: 'string', default: '0' },
+          passive: { type: 'boolean', default: false },
+          report: { type: 'boolean', default: false },
+          scenario: { type: 'string' },
+          model: { type: 'string' },
+          quiet: { type: 'boolean', default: false },
+          linktest: { type: 'string', default: '30' },
+          t3: { type: 'string', default: String(DEFAULT_TIMERS.t3) },
+          t5: { type: 'string', default: String(DEFAULT_TIMERS.t5) },
+          t6: { type: 'string', default: String(DEFAULT_TIMERS.t6) },
+          t7: { type: 'string', default: String(DEFAULT_TIMERS.t7) },
+          t8: { type: 'string', default: String(DEFAULT_TIMERS.t8) },
+          help: { type: 'boolean', default: false, short: 'h' },
+        },
+      });
+    } catch (e) {
+      fail(`${(e as Error).message}\n\n${USAGE}`);
+    }
+  })();
 
   const cmd = positionals[0];
   if (values.help || !cmd) { process.stdout.write(USAGE); process.exit(cmd ? 0 : 2); }
@@ -66,6 +84,7 @@ async function main(): Promise<void> {
   if (cmd !== 'connect') fail(`unknown command ${JSON.stringify(cmd)}\n\n${USAGE}`);
 
   const { host, port } = parseTarget(positionals[1]);
+  const steps = values.scenario ? loadScenario(values.scenario) : null;
   const timers = {
     t3: Number(values.t3), t5: Number(values.t5), t6: Number(values.t6),
     t7: Number(values.t7), t8: Number(values.t8),
@@ -92,14 +111,13 @@ async function main(): Promise<void> {
   if (values.report) process.stdout.write(`${renderReport(report)}\n`);
 
   let scenarioCode = 0;
-  if (values.scenario) {
-    const steps = JSON.parse(fs.readFileSync(values.scenario, 'utf8')) as ScenarioStep[];
+  if (steps) {
     const res = await runScenario(gem, steps);
     process.stdout.write(`${renderScenario(res)}\n`);
     scenarioCode = res.passed === res.total ? 0 : 1;
   }
 
-  if (!values.report && !values.scenario) {
+  if (!values.report && !steps) {
     // Plain `connect`: stay up, print traffic, re-run startup on reconnect.
     gem.autoReconnect(true);
     process.on('SIGINT', () => { gem.disconnect(); process.exit(0); });
