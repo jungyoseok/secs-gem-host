@@ -19,6 +19,8 @@ export type Knobs = {
 
 export class FakeEquipment {
   port = 0;
+  /** Every data message this equipment received, as "S<n>F<n>" — lets a test prove a reconnect. */
+  seen: string[] = [];
   private srv: net.Server | null = null;
   private sock: net.Socket | null = null;
   private sessionId = 0;
@@ -81,6 +83,7 @@ export class FakeEquipment {
     if (p.stype === 5) { this.write(encodeHeader(p.sessionId, 0, 0, 0, 6, p.systemBytes)); return; }
     if (p.stype === 9) { this.sock?.destroy(); return; }
     if (p.stype !== 0) return;
+    this.seen.push(`S${p.stream}F${p.function}`);
 
     let body: SecsItem | null = null;
     if (p.body.length) { try { body = decodeItem(p.body).item; } catch { body = null; } }
