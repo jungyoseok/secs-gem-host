@@ -3,3 +3,4 @@ export * from './hsms.js';
 export * from './model.js';
 export * from './host.js';
 export * from './report.js';
+export * from './scenario.js';
