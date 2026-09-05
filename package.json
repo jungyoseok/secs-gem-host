@@ -1,0 +1,28 @@
+{
+  "name": "secs-gem-host",
+  "version": "0.1.0",
+  "description": "SECS/GEM host test tool: E30 startup conformance, JSON scenarios, and an MCP server for AI agents.",
+  "license": "MIT",
+  "author": "Yoseok Jung",
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": { "secs-gem-host": "dist/cli.js" },
+  "files": ["dist", "models", "fixtures", "README.md", "LICENSE"],
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "tsc",
+    "test": "tsc && node --test \"dist/test/**/*.js\"",
+    "prepublishOnly": "tsc"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "@types/node": "^22.10.2"
+  },
+  "repository": { "type": "git", "url": "git+https://github.com/jungyoseok/secs-gem-host.git" },
+  "homepage": "https://github.com/jungyoseok/secs-gem-host#readme",
+  "keywords": ["secs", "secs-ii", "gem", "hsms", "semi", "e30", "e37", "mcp", "semiconductor", "smart-factory"]
+}
