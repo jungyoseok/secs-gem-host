@@ -94,13 +94,14 @@ export class Hsms extends EventEmitter {
 
   private attach(s: net.Socket): void {
     s.setNoDelay(true);
-    s.on('data', d => this.onData(Buffer.isBuffer(d) ? d : Buffer.from(d)));
-    s.on('error', e => this.emit('anomaly', `socket error: ${(e as Error).message}`));
+    // Every handler ignores a socket we have already replaced or closed: its events
+    // arrive a tick late and would otherwise tear down the connection that took its place.
+    s.on('data', d => { if (this.sock === s) this.onData(Buffer.isBuffer(d) ? d : Buffer.from(d)); });
+    s.on('error', e => { if (this.sock === s) this.emit('anomaly', `socket error: ${(e as Error).message}`); });
     s.on('close', () => {
-      this.state = 'NOT CONNECTED';
-      this.clearTimers();
-      for (const p of this.pending.values()) { clearTimeout(p.timer); p.reject(new Error('connection closed')); }
-      this.pending.clear();
+      if (this.sock !== s) return;
+      this.sock = null;
+      this.reset('connection closed');
       this.emit('close');
     });
   }
@@ -188,6 +189,7 @@ export class Hsms extends EventEmitter {
   }
 
   private waitReply(sys: number, limitMs: number, label: string): Promise<HsmsMessage> {
+    if (!this.sock) return Promise.reject(new Error('not connected'));
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(sys);
@@ -221,6 +223,7 @@ export class Hsms extends EventEmitter {
   }
 
   async send(stream: number, func: number, wbit: boolean, body: SecsItem | null): Promise<HsmsMessage | null> {
+    if (!this.sock) throw new Error('not connected');
     const sys = this.nextSys();
     const buf = body ? encodeItem(body) : Buffer.alloc(0);
     const frame = encodeHeader(this.deviceId, stream, func, 0, 0, sys, buf, wbit);
@@ -252,13 +255,23 @@ export class Hsms extends EventEmitter {
     if (this.t8Timer) { clearTimeout(this.t8Timer); this.t8Timer = null; }
   }
 
-  close(): void {
+  /** Back to NOT CONNECTED: timers off, half-received frame dropped, waiters told. */
+  private reset(why: string): void {
+    this.state = 'NOT CONNECTED';
+    this.acc = Buffer.alloc(0);
     this.clearTimers();
-    this.sock?.destroy();
+    for (const p of this.pending.values()) { clearTimeout(p.timer); p.reject(new Error(why)); }
+    this.pending.clear();
+  }
+
+  close(): void {
+    const s = this.sock;
     this.sock = null;
+    this.reset('connection closed');
+    s?.destroy();
     this.server?.close();
     this.server = null;
     this.listeningPort = null;
-    this.state = 'NOT CONNECTED';
+    if (s) this.emit('close');
   }
 }

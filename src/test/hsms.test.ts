@@ -115,3 +115,63 @@ test('an unmatched even function raises a wrong-system-bytes anomaly', async () 
   h.close();
   p.close();
 });
+
+test('send() on a closed connection rejects at once instead of waiting out T3', async () => {
+  const p = await peer();
+  const h = new Hsms({ host: '127.0.0.1', port: p.port, deviceId: 1, linktestSec: 0 });
+  await h.connect();
+  h.close();
+  await assert.rejects(
+    () => Promise.race([
+      h.send(1, 13, true, item('L', undefined, [])),
+      new Promise((_, rj) => setTimeout(() => rj(new Error('hung past 500ms')), 500)),
+    ]),
+    /not connected/,
+  );
+  p.close();
+});
+
+test('a partial frame left by a dead socket does not corrupt the next connection', async () => {
+  // One port, two behaviours: the first connection selects then dribbles half a
+  // frame and stalls; the second behaves like the normal peer.
+  let conns = 0;
+  const srv = net.createServer(sock => {
+    const first = conns++ === 0;
+    let acc = Buffer.alloc(0);
+    sock.on('data', d => {
+      acc = Buffer.concat([acc, d]);
+      while (acc.length >= 4) {
+        const len = acc.readUInt32BE(0);
+        if (acc.length < 4 + len) break;
+        const frame = acc.subarray(0, 4 + len);
+        acc = acc.subarray(4 + len);
+        const q = decodePacket(frame)!;
+        if (q.stype === 1) {
+          sock.write(encodeHeader(q.sessionId, 0, 0, 0, 2, q.systemBytes));
+          // half a frame the host can never complete
+          if (first) sock.write(encodeHeader(q.sessionId, 1, 14, 0, 0, 7).subarray(0, 6));
+          continue;
+        }
+        if (q.stype === 0 && q.stream === 1 && q.function === 13) {
+          const body = encodeItem(item('L', undefined, [item('B', [0])]));
+          sock.write(encodeHeader(q.sessionId, 1, 14, 0, 0, q.systemBytes, body));
+        }
+      }
+    });
+    sock.on('error', () => {});
+  });
+  await new Promise<void>(r => srv.listen(0, '127.0.0.1', () => r()));
+  const port = (srv.address() as net.AddressInfo).port;
+
+  const h = new Hsms({ host: '127.0.0.1', port, deviceId: 1, linktestSec: 0, timers: { t3: 1, t6: 1 } });
+  await h.connect();
+  await new Promise(r => setTimeout(r, 40));   // let the half frame land in acc
+  h.close();
+
+  await h.connect();                            // same instance, fresh socket
+  const rsp = await h.send(1, 13, true, item('L', undefined, []));
+  assert.equal(rsp!.function, 14);
+  assert.equal(rsp!.body!.children![0].value[0], 0);
+  h.close();
+  srv.close();
+});
