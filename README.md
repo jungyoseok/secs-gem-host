@@ -174,28 +174,16 @@ flag: reply outside T3 on S2F31
 exit=1
 ```
 
-Every row is the same failure, so it is one finding, not ten: the simulator terminates
-HSMS but never answers a data message on the socket.
+Every row is the same failure, so it is one finding, not ten.
 
-- Step 1 — the simulator did not send S1F14. It accepted the TCP connection and answered
-  Select.req with Select.rsp status 0 in about 80 ms, then logged the incoming S1F13 to
-  its own UI and wrote nothing back; the host waited the full T3 and gave up.
+- Step 1 — the simulator did not send S1F14; the host waited the full T3 and gave up.
 - Steps 2–10 — S1F18, S1F4, S1F12, S2F30, S2F34, S2F36, S2F38, S5F4 and S2F32 never
-  arrived, for the same reason. The host sent S9F9 (transaction timer timeout) after each
-  one and carried on to the next step, as E30 requires.
+  arrived either, for the same reason. The host sent S9F9 (transaction timer timeout)
+  after each one and carried on to the next step, as E30 requires.
 
-Cause, read off the simulator's own source: its socket handler answers SType 1
-(Select.req), 5 (Linktest.req) and 9 (Separate.req) only. Data messages (SType 0) are
-decoded into the web UI's packet log and never routed to a reply path — the equipment's
-`replyFor` builds S1F2/S1F4/S1F12/S2F14/… into UI state over a WebSocket, never onto the
-socket. The frames it renders there also carry the body as SML *text* rather than binary
-SECS-II, so even if they were written they would not decode. **The HSMS transport layer
-is real; the SECS-II application layer is a UI simulation.** That is a legitimate use for
-a teaching tool and not a bug report — but it means the simulator cannot be used as an
-equipment stand-in for host conformance testing.
-
-Caveat on the flag lines: `reply outside T3` is the flag this tool raises when a
-transaction times out. Here no reply arrived at all, late or otherwise.
+As of 2026-09-05 the simulator completes HSMS Select and answers Linktest, but sends no
+reply to any SECS-II data message. Every step therefore timed out at T3 (45 s), so the
+run takes about 7.5 minutes; pass `--t3 5` to shorten it.
 
 ## Development
 
