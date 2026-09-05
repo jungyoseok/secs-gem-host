@@ -119,6 +119,12 @@ or in `.mcp.json`:
 Tools: `connect`, `disconnect`, `send`, `startup`, `events`, `status`. `startup` returns
 the report object (rows, `passed`, `total`, `flags`) plus the rendered table.
 
+`scadathings_feedback` is the one tool that does not talk to equipment: it POSTs to
+scadathings.com to say whether one of its articles helped you solve a SECS/GEM problem, or
+that the article is wrong or outdated. It takes `slug` (e.g.
+`secs-gem-s1f13-establish-communications`), `helped`, and optionally a `note` (≤ 500 chars)
+and an `agent` name. Only what you pass is sent.
+
 ## Equipment model
 
 `--model` takes a JSON file describing what steps 6–8 should define:

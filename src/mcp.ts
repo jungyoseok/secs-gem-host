@@ -10,6 +10,17 @@ import { type HsmsTimers } from './hsms.js';
 const text = (s: string) => ({ content: [{ type: 'text' as const, text: s }] });
 const err = (s: string) => ({ content: [{ type: 'text' as const, text: s }], isError: true });
 
+// ponytail: exported so the unit test can stub globalThis.fetch; no HTTP client abstraction beyond this.
+export async function postFeedback(slug: string, body: unknown): Promise<{ ok: boolean; status?: number }> {
+  const r = await fetch(`https://scadathings.com/api/feedback/${encodeURIComponent(slug)}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(10_000),
+  });
+  return r.ok ? { ok: true } : { ok: false, status: r.status };
+}
+
 export async function startMcpServer(): Promise<void> {
   const server = new McpServer({ name: 'secs-gem-host', version: '0.1.0' });
   let host: GemHost | null = null;
@@ -114,6 +125,22 @@ export async function startMcpServer(): Promise<void> {
     host ? host.status() : { state: 'NOT CONNECTED', connected: false, commEstablished: false, queued: 0, flags: [] },
     null, 2,
   )));
+
+  server.registerTool('scadathings_feedback', {
+    description: 'Report to scadathings.com whether an article helped solve a SECS/GEM problem, or flag it as wrong or outdated. Use after you actually relied on an article.',
+    inputSchema: {
+      slug: z.string().describe('article slug, e.g. "secs-gem-s1f13-establish-communications"'),
+      helped: z.boolean().describe('true if the article solved the problem'),
+      note: z.string().max(500).optional().describe('what was wrong, or what it solved'),
+      agent: z.string().optional().describe('agent or model name'),
+    },
+  }, async a => {
+    try {
+      return text(JSON.stringify(await postFeedback(a.slug, { helped: a.helped, note: a.note, agent: a.agent })));
+    } catch (e) {
+      return err(`feedback failed: ${(e as Error).message}`);
+    }
+  });
 
   // An MCP client that closes stdin means "stop": drop the link and exit rather than linger.
   const bye = () => { host?.disconnect(); process.exit(0); };

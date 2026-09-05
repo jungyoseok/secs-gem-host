@@ -50,7 +50,7 @@ test('the MCP server lists its tools and runs the startup', async () => {
 
   const list = await rpc.call(2, 'tools/list', {});
   const names = list.result.tools.map((t: any) => t.name).sort();
-  assert.deepEqual(names, ['connect', 'disconnect', 'events', 'send', 'startup', 'status']);
+  assert.deepEqual(names, ['connect', 'disconnect', 'events', 'scadathings_feedback', 'send', 'startup', 'status']);
 
   const conn = await rpc.call(3, 'tools/call', {
     name: 'connect',
