@@ -7,7 +7,7 @@
   "type": "module",
   "main": "./dist/index.js",
   "bin": { "secs-gem-host": "dist/cli.js" },
-  "files": ["dist", "models", "fixtures", "README.md", "LICENSE"],
+  "files": ["dist", "!dist/test", "models", "fixtures", "README.md", "LICENSE"],
   "engines": { "node": ">=20" },
   "scripts": {
     "build": "tsc && chmod +x dist/cli.js",
