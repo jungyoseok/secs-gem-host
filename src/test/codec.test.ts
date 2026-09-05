@@ -88,3 +88,7 @@ test('truncated body raises CodecError', () => {
 test('unknown type raises CodecError', () => {
   assert.throws(() => encodeItem({ type: 'Q', value: 1 }), CodecError);
 });
+
+test('a zero-length U4 item encodes as one format byte plus a zero length', () => {
+  assert.deepEqual([...encodeItem(item('U4', []))], [0xb1, 0x00]);
+});

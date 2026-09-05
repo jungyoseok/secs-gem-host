@@ -16,6 +16,9 @@ export type ReportRow = {
 
 export type Report = { rows: ReportRow[]; passed: number; total: number; flags: string[] };
 
+/** Appended to the ack notes that mean "the equipment has never heard of these ids". */
+const MODEL_HINT = ' — CEID/VID not defined at the equipment; pass --model <file> with the equipment\'s own IDs';
+
 export type GemHostOptions = {
   host: string;
   port: number;
@@ -49,6 +52,19 @@ export function ceidOf(m: HsmsMessage): number | null {
   if (!c || c.length < 2) return null;
   const v = c[1].value;
   return Array.isArray(v) ? Number(v[0]) : Number(v);
+}
+
+/** S1F12 namelist: L[ L[ SVID, SVNAME, UNITS ] ]. */
+export function svidsOf(m: HsmsMessage): { id: number; name: string; units: string }[] {
+  return (m.body?.children ?? []).map(c => {
+    const [id, name, units] = c.children ?? [];
+    const v = id?.value;
+    return {
+      id: Number(Array.isArray(v) ? v[0] : v),
+      name: String(name?.value ?? ''),
+      units: String(units?.value ?? ''),
+    };
+  }).filter(s => Number.isFinite(s.id));
 }
 
 /** SECS-II 16-char timestamp, YYYYMMDDhhmmsscc. */
@@ -126,7 +142,7 @@ const STEPS: StepSpec[] = [
     ]),
     check: rsp => {
       const a = ackByte(rsp);
-      return a === 0 ? { ok: true, note: '' } : { ok: false, note: `DRACK ${a}` };
+      return a === 0 ? { ok: true, note: '' } : { ok: false, note: `DRACK ${a}${a === 4 ? MODEL_HINT : ''}` };
     },
   },
   {
@@ -140,7 +156,7 @@ const STEPS: StepSpec[] = [
     ]),
     check: rsp => {
       const a = ackByte(rsp);
-      return a === 0 ? { ok: true, note: '' } : { ok: false, note: `LRACK ${a}` };
+      return a === 0 ? { ok: true, note: '' } : { ok: false, note: `LRACK ${a}${a === 4 ? MODEL_HINT : ''}` };
     },
   },
   {
@@ -149,13 +165,13 @@ const STEPS: StepSpec[] = [
     body: () => item('L', undefined, [item('BOOLEAN', [true]), item('L', undefined, [])]),
     check: rsp => {
       const a = ackByte(rsp);
-      return a === 0 ? { ok: true, note: '' } : { ok: false, note: `ERACK ${a}` };
+      return a === 0 ? { ok: true, note: '' } : { ok: false, note: `ERACK ${a}${a === 1 ? MODEL_HINT : ''}` };
     },
   },
   {
     step: '9', sent: 'S5F3', expected: 'S5F4', stream: 5, func: 3, expectFunc: 4,
-    // ALED bit 7 set = enable; ALID 0 means "all alarms".
-    body: () => item('L', undefined, [item('B', [0x80]), item('U4', [0])]),
+    // ALED bit 7 set = enable; E5: a ZERO-LENGTH ALID item means "all alarms" (not ALID 0).
+    body: () => item('L', undefined, [item('B', [0x80]), item('U4', [])]),
     check: rsp => {
       const a = ackByte(rsp);
       return a === 0 ? { ok: true, note: '' } : { ok: false, note: `ACKC5 ${a}` };
@@ -173,6 +189,8 @@ const STEPS: StepSpec[] = [
 
 export class GemHost {
   readonly model: Model;
+  /** SVIDs the equipment listed in S1F12 (step 4), so steps 6-8 can explain a DRACK/LRACK. */
+  lastSvids: { id: number; name: string; units: string }[] = [];
   onReport?: (r: Report) => void;
 
   private opts: GemHostOptions;
@@ -301,6 +319,11 @@ export class GemHost {
       }
       const t0 = Date.now();
       try {
+        if (s.step === '6' && this.lastSvids.length) {
+          const have = new Set(this.lastSvids.map(v => v.id));
+          const miss = [...new Set(this.model.reports.flatMap(r => r.vids))].filter(v => !have.has(v));
+          if (miss.length) this.flag(`model VIDs not in equipment SVID list: ${miss.join(', ')}`);
+        }
         if (s.pre) {
           const preRsp = await h.send(s.stream, s.func, true, s.pre(this.model));
           const preAck = ackByte(preRsp);
@@ -321,6 +344,7 @@ export class GemHost {
           row.note += c.note;
         }
         if (s.step === '1' && row.result === 'PASS') this.commEstablished = true;
+        if (s.step === '4' && row.result === 'PASS') this.lastSvids = svidsOf(rsp);
       } catch (e) {
         row.elapsedMs = Date.now() - t0;
         row.result = 'FAIL';

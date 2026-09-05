@@ -146,7 +146,12 @@ export class FakeEquipment {
     if (s === 2 && f === 33) return { func: 34, body: ack(k.drack ?? 0) };
     if (s === 2 && f === 35) return { func: 36, body: ack(k.lrack ?? 0) };
     if (s === 2 && f === 37) return { func: 38, body: ack(k.erack ?? 0) };
-    if (s === 5 && f === 3) return { func: 4, body: ack(k.ackc5 ?? 0) };
+    if (s === 5 && f === 3) {
+      // E5: a zero-length ALID item means "all alarms"; any ALID we don't have is ACKC5 1.
+      const alids = (_body?.children?.[1]?.value as number[] | undefined) ?? [];
+      const known = alids.every(a => m.alarms.some(x => x.alid === Number(a)));
+      return { func: 4, body: ack(k.ackc5 ?? (known ? 0 : 1)) };
+    }
     if (s === 2 && f === 31) return { func: 32, body: ack(k.tiack ?? 0) };
     if (s === 2 && f === 41) {
       return { func: 42, body: item('L', undefined, [ack(0), item('L', undefined, [])]) };

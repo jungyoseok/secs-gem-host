@@ -52,8 +52,11 @@ test('the fake answers the whole E30 startup correctly', async () => {
   const s2f38 = await h.send(2, 37, true, item('L', undefined, [item('BOOLEAN', [true]), item('L', undefined, [])]));
   assert.deepEqual(s2f38!.body, { type: 'B', value: [0] });
 
-  const s5f4 = await h.send(5, 3, true, item('L', undefined, [item('B', [0x80]), item('U4', [0])]));
+  // Zero-length ALID = all alarms -> ACKC5 0; ALID 0 is not in the model -> ACKC5 1.
+  const s5f4 = await h.send(5, 3, true, item('L', undefined, [item('B', [0x80]), item('U4', [])]));
   assert.deepEqual(s5f4!.body, { type: 'B', value: [0] });
+  const s5f4bad = await h.send(5, 3, true, item('L', undefined, [item('B', [0x80]), item('U4', [0])]));
+  assert.deepEqual(s5f4bad!.body, { type: 'B', value: [1] });
 
   const s2f32 = await h.send(2, 31, true, item('A', '2026090512000000'));
   assert.deepEqual(s2f32!.body, { type: 'B', value: [0] });

@@ -33,7 +33,7 @@ test('connect --report against a wrong equipment exits 1 and names the step', as
   const r = await runCli(['connect', `127.0.0.1:${port}`, '--report', '--linktest', '0']);
   await eq.close();
   assert.equal(r.code, 1, r.out + r.err);
-  assert.match(r.out, /^8 {4}S2F37 {3}S2F38 {3}S2F38 {3}1 {4}\d+\/45000\s+FAIL {4}ERACK 1$/m);
+  assert.match(r.out, /^8 {4}S2F37 {3}S2F38 {3}S2F38 {3}1 {4}\d+\/45000\s+FAIL {4}ERACK 1 — CEID\/VID not defined at the equipment; pass --model <file> with the equipment's own IDs$/m);
   assert.match(r.out, /E30 startup: 9\/10 passed/);
 });
 

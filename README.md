@@ -45,7 +45,7 @@ direction, and re-runs the whole startup after a reconnect — like a real host.
 | 6 | S2F33 W (delete all, then define) | S2F34 | DRACK 0 |
 | 7 | S2F35 W | S2F36 | LRACK 0 |
 | 8 | S2F37 W (CEED true, all) | S2F38 | ERACK 0 |
-| 9 | S5F3 W (ALED enable, ALID 0) | S5F4 | ACKC5 0 |
+| 9 | S5F3 W (ALED enable, zero-length ALID = all alarms) | S5F4 | ACKC5 0 |
 | 10 | S2F31 W (now) | S2F32 | TIACK 0 |
 | idle | Linktest.req every 30 s | Linktest.rsp | within T6 |
 
@@ -138,6 +138,28 @@ The bundled default follows a common industrial numbering scheme: SVIDs 1–3 fo
 GEM variables, `101+` for process values, `10000+` for named SVs and DVs, RPTID and CEID
 in parallel from `10001`, ALIDs from `1001`.
 
+### Testing your own equipment: write a model file
+
+The bundled model is a guess. Real equipment has its own ids, and steps 6-8 define reports
+and link events by *number* — so with the default model the equipment answers DRACK 4 /
+LRACK 4 / ERACK 1 ("that id does not exist here"), which is a mismatch, not a defect.
+
+1. Copy `models/default.json` next to your run (keep it out of any public repo if the ids
+   are customer data).
+2. Replace `svs`, `reports`, `events` and `alarms` with the equipment's own SVIDs, VIDs,
+   RPTIDs, CEIDs and ALIDs. Step 4's `S1F12` namelist prints the SVIDs the equipment
+   actually has; the run also flags `model VIDs not in equipment SVID list: <ids>` before
+   it sends S2F33. That flag is advisory — a VID that is a DV or an EC is legitimately
+   absent from the S1F12 namelist.
+3. Run with `--model <file>`.
+
+```bash
+node dist/cli.js connect 127.0.0.1:5000 --report --t3 5 --device-id 1 --model site-model.json
+```
+
+`--device-id` must match the equipment's configured session id. If it does not, the
+equipment answers every primary with S9F1 (unrecognised device id) and every step fails.
+
 ## Known findings
 
 Results of running this tool against real equipment implementations.
@@ -184,6 +206,18 @@ Every row is the same failure, so it is one finding, not ten.
 As of 2026-09-05 the simulator completes HSMS Select and answers Linktest, but sends no
 reply to any SECS-II data message. Every step therefore timed out at T3 (45 s), so the
 run takes about 7.5 minutes; pass `--t3 5` to shorten it.
+
+## Changelog
+
+### 0.1.1
+
+- **S5F3 "enable all alarms" is now E5-correct.** The body was `L[B 0x80, U4 [0]]`; "all
+  alarms" is a *zero-length* ALID item, `L[B 0x80, U4 []]`. Equipment that rejects an
+  unknown ALID answered ACKC5 1 to the old body.
+- **DRACK 4 / LRACK 4 / ERACK 1 now say what to do**: the note names the model mismatch and
+  points at `--model`, and the SVID namelist from step 4 is compared against the model's
+  report VIDs, so the run flags `model VIDs not in equipment SVID list: <ids>` before
+  S2F33 goes out.
 
 ## Development
 

@@ -316,3 +316,36 @@ test('the S2F33 and S2F35 bodies match the model', async () => {
   host.disconnect();
   await eq.close();
 });
+
+test('step 9 sends a zero-length ALID item ("all alarms"), not ALID 0', async () => {
+  const eq = new FakeEquipment();
+  const port = await eq.listen();
+  const host = new GemHost({ host: '127.0.0.1', port, deviceId: 0, linktestSec: 0 });
+  await host.connect();
+  const r = await host.startup();
+  host.disconnect();
+  await eq.close();
+  assert.deepEqual(eq.bodies['S5F3'], {
+    type: 'L',
+    children: [{ type: 'B', value: [0x80] }, { type: 'U4', value: [] }],
+  });
+  assert.equal(r.rows.find(x => x.step === '9')!.result, 'PASS');
+});
+
+test('an equipment whose SVIDs differ is flagged, and LRACK 4 says to pass --model', async () => {
+  const base = loadModel();
+  const eq = new FakeEquipment({ lrack: 4 }, {
+    ...base,
+    svs: base.svs.map(sv => ({ ...sv, id: sv.id + 500000 })),
+  });
+  const port = await eq.listen();
+  const host = new GemHost({ host: '127.0.0.1', port, deviceId: 0, linktestSec: 0 });
+  await host.connect();
+  const r = await host.startup();
+  host.disconnect();
+  await eq.close();
+  assert.ok(host.lastSvids.length > 0);
+  assert.ok(r.flags.some(f => /^model VIDs not in equipment SVID list: 10001, 10002/.test(f)), r.flags.join('|'));
+  const row = r.rows.find(x => x.step === '7')!;
+  assert.match(row.note, /^LRACK 4 — CEID\/VID not defined at the equipment; pass --model <file> with the equipment's own IDs$/);
+});

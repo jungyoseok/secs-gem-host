@@ -1,6 +1,6 @@
 {
   "name": "secs-gem-host",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "SECS/GEM host test tool: E30 startup conformance, JSON scenarios, and an MCP server for AI agents.",
   "license": "MIT",
   "author": "Yoseok Jung",
