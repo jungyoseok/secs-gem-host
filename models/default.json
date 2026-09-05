@@ -1,0 +1,45 @@
+{
+  "mdln": "GENERIC-1",
+  "softrev": "1.0.0",
+  "svs": [
+    { "id": 1, "name": "CLOCK", "type": "A", "units": "yyyyMMddhhmmss", "value": "20260905120000" },
+    { "id": 2, "name": "CONTROL_STATE", "type": "U1", "units": "", "value": 5 },
+    { "id": 3, "name": "PROCESS_STATE", "type": "U1", "units": "", "value": 1 },
+    { "id": 101, "name": "SV_101", "type": "U2", "units": "", "value": 0 },
+    { "id": 102, "name": "SV_102", "type": "U2", "units": "", "value": 0 },
+    { "id": 103, "name": "SV_103", "type": "I2", "units": "degC", "value": 25 },
+    { "id": 104, "name": "SV_104", "type": "F4", "units": "kPa", "value": 1.5 },
+    { "id": 10001, "name": "EQUIPMENT_TIME", "type": "A", "units": "", "value": "20260905120000" },
+    { "id": 10002, "name": "OPERATING_MODE", "type": "U1", "units": "", "value": 1 },
+    { "id": 10003, "name": "STEP_NUMBER", "type": "U2", "units": "", "value": 0 },
+    { "id": 10004, "name": "CYCLE_COUNT", "type": "U4", "units": "", "value": 0 },
+    { "id": 10005, "name": "JOB_ID", "type": "A", "units": "", "value": "JOB_0001" },
+    { "id": 10006, "name": "UNIT_ID", "type": "A", "units": "", "value": "UNIT_0001" },
+    { "id": 10007, "name": "QUANTITY", "type": "U2", "units": "", "value": 0 },
+    { "id": 10008, "name": "RECIPE_ID", "type": "U2", "units": "", "value": 1 },
+    { "id": 10009, "name": "RECIPE_NAME", "type": "A", "units": "", "value": "RECIPE_A" },
+    { "id": 10010, "name": "MEASURE_1", "type": "F4", "units": "", "value": 0 },
+    { "id": 10011, "name": "MEASURE_2", "type": "F8", "units": "", "value": 0 }
+  ],
+  "reports": [
+    { "rptid": 10001, "vids": [10001, 10002] },
+    { "rptid": 10002, "vids": [10003, 10004] },
+    { "rptid": 10003, "vids": [10005, 10006, 10007] },
+    { "rptid": 10004, "vids": [10008, 10009] },
+    { "rptid": 10005, "vids": [10010, 10011] }
+  ],
+  "events": [
+    { "ceid": 10001, "name": "EVENT_10001", "rptids": [10001] },
+    { "ceid": 10002, "name": "EVENT_10002", "rptids": [10002] },
+    { "ceid": 10003, "name": "EVENT_10003", "rptids": [10003] },
+    { "ceid": 10004, "name": "EVENT_10004", "rptids": [10004] },
+    { "ceid": 10005, "name": "EVENT_10005", "rptids": [10005] }
+  ],
+  "alarms": [
+    { "alid": 1001, "text": "ALARM_1001" },
+    { "alid": 1002, "text": "ALARM_1002" },
+    { "alid": 1003, "text": "ALARM_1003" },
+    { "alid": 1004, "text": "ALARM_1004" },
+    { "alid": 1005, "text": "ALARM_1005" }
+  ]
+}
