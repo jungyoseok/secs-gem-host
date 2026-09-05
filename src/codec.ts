@@ -1,6 +1,6 @@
 // SECS-II item codec + HSMS header codec.
 //
-// Ported from /opt/secs-gem-simulator/src/server.ts (encodeItem / decodeItem /
+// Ported from the scadathings.com SECS/GEM simulator's codec (encodeItem / decodeItem /
 // encodeHeader / decodePacket / secsText). The item-tree JSON shape is deliberately
 // identical to the simulator's paid /api/codec so bodies are interchangeable.
 //

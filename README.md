@@ -21,7 +21,7 @@ secs-gem-host mcp
 | Option | Meaning |
 |---|---|
 | `--device-id <n>` | HSMS session / device id (default `0`) |
-| `--passive` | listen for the equipment instead of connecting to it |
+| `--passive` | listen for the equipment instead of connecting to it; the `<host:port>` positional is the bind address, so use `127.0.0.1:<port>` unless you need other machines to reach it |
 | `--report` | run the E30 startup, print the table, exit `1` on any FAIL |
 | `--scenario <file>` | run a JSON scenario after startup |
 | `--model <file>` | equipment model used by startup steps 6–8 (default: bundled `models/default.json`) |

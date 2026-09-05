@@ -31,6 +31,8 @@ class Rpc {
     for (;;) { const m = await this.next(); if (m.id === id) return m; }
   }
   kill() { this.child.kill(); }
+  end() { this.child.stdin.end(); }
+  exit(): Promise<number> { return new Promise(r => this.child.on('exit', c => r(c ?? -1))); }
 }
 
 test('the MCP server lists its tools and runs the startup', async () => {
@@ -81,5 +83,33 @@ test('the MCP server lists its tools and runs the startup', async () => {
 
   await rpc.call(8, 'tools/call', { name: 'disconnect', arguments: {} });
   rpc.kill();
+  await eq.close();
+});
+
+
+test('the MCP server exits when stdin closes with a connection open', async () => {
+  const eq = new FakeEquipment();
+  const port = await eq.listen();
+  const rpc = new Rpc();
+
+  await rpc.call(1, 'initialize', {
+    protocolVersion: '2025-06-18',
+    capabilities: {},
+    clientInfo: { name: 'secs-gem-host-test', version: '0.0.0' },
+  });
+  rpc.send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+  const conn = await rpc.call(2, 'tools/call', {
+    name: 'connect',
+    arguments: { host: '127.0.0.1', port, deviceId: 0, linktestSec: 0 },
+  });
+  assert.equal(conn.result.isError, undefined);
+
+  const exited = rpc.exit();
+  rpc.end();
+  const code = await Promise.race([
+    exited,
+    new Promise<number>(r => setTimeout(() => r(-2), 2000)),
+  ]);
+  assert.equal(code, 0, 'the server did not exit 0 within 2s of stdin closing');
   await eq.close();
 });

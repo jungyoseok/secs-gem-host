@@ -65,3 +65,16 @@ test('an unknown flag is a usage error, not a stack trace', async () => {
   assert.match(r.err, /bogus|unknown option/i);
   assert.doesNotMatch(r.err, /^\s+at /m);
 });
+
+test('a non-numeric timer flag is a usage error', async () => {
+  const r = await runCli(['connect', '127.0.0.1:1', '--t3', 'abc']);
+  assert.equal(r.code, 2, r.out + r.err);
+  assert.match(r.err, /t3/);
+  assert.doesNotMatch(r.err, /^\s+at /m);
+});
+
+test('a fractional device id is a usage error', async () => {
+  const r = await runCli(['connect', '127.0.0.1:1', '--device-id', '1.5']);
+  assert.equal(r.code, 2, r.out + r.err);
+  assert.match(r.err, /device-id/);
+});

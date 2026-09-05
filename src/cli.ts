@@ -34,6 +34,14 @@ function parseTarget(s: string | undefined): { host: string; port: number } {
   return { host: m[1], port: Number(m[2]) };
 }
 
+/** A numeric flag: timers must be a number > 0, ids and intervals a whole number >= 0. */
+function numFlag(name: string, raw: string, timer: boolean): number {
+  const n = Number(raw);
+  const ok = Number.isFinite(n) && (timer ? n > 0 : Number.isInteger(n) && n >= 0);
+  if (!ok) fail(`--${name} expects ${timer ? 'a number > 0' : 'a whole number >= 0'}, got ${JSON.stringify(raw)}`);
+  return n;
+}
+
 /** Read + parse a scenario file before we touch the network, so a typo is a usage error. */
 function loadScenario(path: string): ScenarioStep[] {
   try {
@@ -86,15 +94,18 @@ async function main(): Promise<void> {
   const { host, port } = parseTarget(positionals[1]);
   const steps = values.scenario ? loadScenario(values.scenario) : null;
   const timers = {
-    t3: Number(values.t3), t5: Number(values.t5), t6: Number(values.t6),
-    t7: Number(values.t7), t8: Number(values.t8),
+    t3: numFlag('t3', values.t3, true), t5: numFlag('t5', values.t5, true),
+    t6: numFlag('t6', values.t6, true), t7: numFlag('t7', values.t7, true),
+    t8: numFlag('t8', values.t8, true),
   };
+  const deviceId = numFlag('device-id', values['device-id'], false);
+  const linktestSec = numFlag('linktest', values.linktest, false);
 
   const gem = new GemHost({
     host, port,
-    deviceId: Number(values['device-id']),
+    deviceId,
     passive: values.passive,
-    linktestSec: Number(values.linktest),
+    linktestSec,
     timers,
     model: values.model ? loadModel(values.model) : undefined,
     onLog: values.quiet ? undefined : line => process.stdout.write(`${line}\n`),

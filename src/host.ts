@@ -185,6 +185,8 @@ export class GemHost {
   private reconnecting = false;
   private looping = false;
   private waiters: { sf: string; ceid?: number; resolve: (m: HsmsMessage) => void }[] = [];
+  /** 10-byte header of the last primary we sent, so a T3 expiry can quote it in S9F9's MHEAD. */
+  private lastPrimaryHeader: Buffer | null = null;
 
   constructor(opts: GemHostOptions) {
     this.opts = opts;
@@ -200,7 +202,10 @@ export class GemHost {
     });
     this.hsms = h;
     h.on('anomaly', a => this.flag(a));
-    h.on('tx', m => this.log(`${new Date().toISOString()} H→E S${m.stream}F${m.function}${m.wbit ? ' W' : ''} sys=${m.systemBytes}\n${m.body ? secsText(m.body) : '<empty>'}`));
+    h.on('tx', m => {
+      if (m.wbit) this.lastPrimaryHeader = Buffer.from(m.raw.subarray(4, 14));
+      this.log(`${new Date().toISOString()} H→E S${m.stream}F${m.function}${m.wbit ? ' W' : ''} sys=${m.systemBytes}\n${m.body ? secsText(m.body) : '<empty>'}`);
+    });
     h.on('rx', m => {
       if (m.stype !== 0) return;
       this.log(`${new Date().toISOString()} E→H S${m.stream}F${m.function}${m.wbit ? ' W' : ''} sys=${m.systemBytes}\n${m.body ? secsText(m.body) : '<empty>'}`);
@@ -215,6 +220,12 @@ export class GemHost {
   /** Host-side auto replies + event queue + conformance flags. */
   private onPrimary(m: HsmsMessage): void {
     const sf = `S${m.stream}F${m.function}`;
+    if (this.hsms && m.sessionId !== this.hsms.deviceId) {
+      // E5: an unrecognised device id is answered with S9F1 and nothing else.
+      void this.hsms.send(9, 1, false, item('B', [...m.raw.subarray(4, 14)])).catch(() => {});
+      this.flag(`unrecognised device id ${m.sessionId} on ${sf}`);
+      return;
+    }
     if (m.function % 2 === 0) {
       this.flag(`primary with even function ${sf}`);
       return;
@@ -246,7 +257,8 @@ export class GemHost {
         // Comm is established either way round: the equipment may open it, not just startup().
         this.commEstablished = true;
       } else if (m.stream === 1 && m.function === 1) {
-        h.reply(m, 2, item('L', undefined, [item('A', HOST_MDLN), item('A', HOST_SOFTREV)]));
+        // E5: the HOST's S1F2 is a zero-length list; MDLN/SOFTREV is the equipment's side.
+        h.reply(m, 2, item('L', undefined, []));
       } else if (m.stream === 5 && m.function === 1) {
         h.reply(m, 2, item('B', [0]));
       } else if (m.stream === 6 && m.function === 11) {
@@ -316,7 +328,8 @@ export class GemHost {
         if (/T3/.test((e as Error).message)) {
           this.flag(`reply outside T3 on ${s.sent}`);
           // E30/E37: a transaction timer expiry is reported to the peer as S9F9.
-          try { await h.send(9, 9, false, item('B', [0, 0, 0, 0, 0, 0, 0, 0, 0, 0])); } catch { /* link may be down */ }
+          const mhead = this.lastPrimaryHeader ?? Buffer.alloc(10);
+          try { await h.send(9, 9, false, item('B', [...mhead])); } catch { /* link may be down */ }
         }
       }
       rows.push(row);

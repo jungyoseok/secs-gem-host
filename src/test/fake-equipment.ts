@@ -16,12 +16,18 @@ export type Knobs = {
   tiack?: number;     // S2F32 TIACK
   delayMs?: number;   // delay every reply, to push it past T3
   sendS9?: number;    // push S9F<n> right after Select
+  s1f4NotList?: boolean;   // S1F4 body is not a list
+  s1f12Empty?: boolean;    // S1F12 namelist is empty
+  s2f30NotList?: boolean;  // S2F30 body is not a list
+  silentOn?: string;       // never answer this "S<n>F<n>", to force a T3 expiry
 };
 
 export class FakeEquipment {
   port = 0;
   /** Every data message this equipment received, as "S<n>F<n>" — lets a test prove a reconnect. */
   seen: string[] = [];
+  /** Last decoded body per "S<n>F<n>", so a test can assert what the host actually sent. */
+  bodies: Record<string, SecsItem | null> = {};
   private srv: net.Server | null = null;
   private sock: net.Socket | null = null;
   private sessionId = 0;
@@ -84,10 +90,13 @@ export class FakeEquipment {
     if (p.stype === 5) { this.write(encodeHeader(p.sessionId, 0, 0, 0, 6, p.systemBytes)); return; }
     if (p.stype === 9) { this.sock?.destroy(); return; }
     if (p.stype !== 0) return;
-    this.seen.push(`S${p.stream}F${p.function}`);
+    const sf = `S${p.stream}F${p.function}`;
+    this.seen.push(sf);
 
     let body: SecsItem | null = null;
     if (p.body.length) { try { body = decodeItem(p.body).item; } catch { body = null; } }
+    this.bodies[sf] = body;
+    if (this.knobs.silentOn === sf) return;
     const rsp = this.answer(p.stream, p.function, body);
     if (!rsp || !p.wbit) return;
     const emit = () => this.write(encodeHeader(p.sessionId, p.stream, rsp.func, 0, 0, p.systemBytes, encodeItem(rsp.body)));
@@ -113,9 +122,11 @@ export class FakeEquipment {
     }
     if (s === 1 && f === 17) return { func: 18, body: ack(k.onlack ?? 0) };
     if (s === 1 && f === 3) {
+      if (k.s1f4NotList) return { func: 4, body: item('A', 'not a list') };
       return { func: 4, body: item('L', undefined, m.svs.map(sv => svItem(sv) as SecsItem)) };
     }
     if (s === 1 && f === 11) {
+      if (k.s1f12Empty) return { func: 12, body: item('L', undefined, []) };
       return {
         func: 12,
         body: item('L', undefined, m.svs.map(sv => item('L', undefined, [
@@ -124,6 +135,7 @@ export class FakeEquipment {
       };
     }
     if (s === 2 && f === 29) {
+      if (k.s2f30NotList) return { func: 30, body: item('A', 'not a list') };
       return {
         func: 30,
         body: item('L', undefined, [item('L', undefined, [
@@ -153,6 +165,9 @@ export class FakeEquipment {
     ]), true);
   }
 
+  /** S1F1 from the equipment side: "are you there?", answered by the host's S1F2. */
+  sendS1F1(): void { this.push(1, 1, item('L', undefined, []), true); }
+
   /** S1F13 from the equipment side: the equipment opens communication itself. */
   sendS1F13(): void {
     this.push(1, 13, item('L', undefined, [item('A', this.model.mdln), item('A', this.model.softrev)]), true);
@@ -173,6 +188,11 @@ export class FakeEquipment {
       if (n === 0) emit();
       else setTimeout(emit, n * trace.dsperMs).unref?.();
     });
+  }
+
+  /** Send any primary with an arbitrary session id — used to provoke the host's S9F1. */
+  pushAs(sessionId: number, stream: number, func: number, body: SecsItem): void {
+    this.write(encodeHeader(sessionId, stream, func, 0, 0, ++this.sys, encodeItem(body), true));
   }
 
   private push(stream: number, func: number, body: SecsItem, wbit = false): void {

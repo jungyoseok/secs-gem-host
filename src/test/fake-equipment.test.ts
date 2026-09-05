@@ -5,7 +5,7 @@ import { Hsms } from '../hsms.js';
 import { item } from '../codec.js';
 import { loadModel } from '../model.js';
 
-test('the default model has the Kystem numbering scheme with generic names', () => {
+test('the default model has a common industrial numbering scheme with generic names', () => {
   const m = loadModel();
   assert.equal(m.mdln, 'GENERIC-1');
   assert.ok(m.svs.some(s => s.id === 1));

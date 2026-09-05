@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { GemHost } from '../host.js';
 import { FakeEquipment, type Knobs } from './fake-equipment.js';
+import { item, type SecsItem } from '../codec.js';
+import { loadModel } from '../model.js';
 
 async function run(knobs: Knobs = {}, timers = {}) {
   const eq = new FakeEquipment(knobs);
@@ -49,6 +51,22 @@ for (const [knob, value, step] of knobCases) {
     const failed = r.rows.filter(x => x.result === 'FAIL').map(x => x.step);
     assert.deepEqual(failed, [step]);
     assert.equal(r.rows.find(x => x.step === step)!.ack, String(value));
+    assert.equal(r.passed, 9);
+  });
+}
+
+// Steps 3, 4 and 5 check the reply's shape, not an ack byte, so they need body knobs.
+const bodyKnobCases: [keyof Knobs, string][] = [
+  ['s1f4NotList', '3'],
+  ['s1f12Empty', '4'],
+  ['s2f30NotList', '5'],
+];
+
+for (const [knob, step] of bodyKnobCases) {
+  test(`knob ${knob} fails exactly step ${step}`, async () => {
+    const r = await run({ [knob]: true } as Knobs);
+    const failed = r.rows.filter(x => x.result === 'FAIL').map(x => x.step);
+    assert.deepEqual(failed, [step], JSON.stringify(r.rows, null, 2));
     assert.equal(r.passed, 9);
   });
 }
@@ -210,4 +228,91 @@ test('startup on a link that is not selected fails step 1 and skips the rest', a
   assert.equal(r.rows[0].note, 'HSMS not selected');
   assert.deepEqual([...new Set(r.rows.slice(1).map(x => x.result))], ['SKIP']);
   host.disconnect();
+});
+
+
+test('the host answers S1F1 with a zero-length list, not its own MDLN/SOFTREV', async () => {
+  const eq = new FakeEquipment();
+  const port = await eq.listen();
+  const host = new GemHost({ host: '127.0.0.1', port, deviceId: 0, linktestSec: 0 });
+  await host.connect();
+  eq.sendS1F1();
+  assert.ok(await waitSeen(eq, 'S1F2', 1), eq.seen.join(','));
+  assert.deepEqual(eq.bodies['S1F2'], { type: 'L', children: [] });
+  host.disconnect();
+  await eq.close();
+});
+
+test('a T3 expiry sends S9F9 carrying the timed-out primary\'s MHEAD', async () => {
+  const eq = new FakeEquipment({ silentOn: 'S1F17' });
+  const port = await eq.listen();
+  const host = new GemHost({ host: '127.0.0.1', port, deviceId: 0, linktestSec: 0, timers: { t3: 0.2 } });
+  await host.connect();
+  await host.startup();
+  assert.ok(await waitSeen(eq, 'S9F9', 1), eq.seen.join(','));
+  const b = eq.bodies['S9F9'] as SecsItem;
+  assert.equal(b.type, 'B');
+  const bytes = b.value as number[];
+  assert.equal(bytes.length, 10);
+  assert.equal(bytes[2] & 0x7f, 1, 'MHEAD stream');
+  assert.equal(bytes[3], 17, 'MHEAD function');
+  host.disconnect();
+  await eq.close();
+});
+
+test('a data message with a foreign session id gets S9F1 and is not processed', async () => {
+  const eq = new FakeEquipment();
+  const port = await eq.listen();
+  const host = new GemHost({ host: '127.0.0.1', port, deviceId: 0, linktestSec: 0 });
+  await host.connect();
+  await host.startup();
+  eq.pushAs(7, 6, 11, item('L', undefined, [
+    item('U4', [1]), item('U4', [10001]), item('L', undefined, []),
+  ]));
+  assert.ok(await waitSeen(eq, 'S9F1', 1), eq.seen.join(','));
+  assert.equal(eq.seen.filter(x => x === 'S6F12').length, 0, eq.seen.join(','));
+  assert.equal(host.drainEvents().length, 0);
+  assert.ok(host.status().flags.some(f => /unrecognised device id 7/.test(f)), host.status().flags.join('|'));
+  host.disconnect();
+  await eq.close();
+});
+
+test('the S2F33 and S2F35 bodies match the model', async () => {
+  const eq = new FakeEquipment();
+  const port = await eq.listen();
+  const host = new GemHost({ host: '127.0.0.1', port, deviceId: 0, linktestSec: 0 });
+  await host.connect();
+  await host.startup();
+  const m = loadModel();
+
+  assert.deepEqual(eq.bodies['S2F33'], {
+    type: 'L',
+    children: [
+      { type: 'U4', value: [1] },
+      { type: 'L', children: m.reports.map(r => ({
+        type: 'L',
+        children: [
+          { type: 'U4', value: [r.rptid] },
+          { type: 'L', children: r.vids.map(v => ({ type: 'U4', value: [v] })) },
+        ],
+      })) },
+    ],
+  });
+
+  assert.deepEqual(eq.bodies['S2F35'], {
+    type: 'L',
+    children: [
+      { type: 'U4', value: [1] },
+      { type: 'L', children: m.events.map(e => ({
+        type: 'L',
+        children: [
+          { type: 'U4', value: [e.ceid] },
+          { type: 'L', children: e.rptids.map(r => ({ type: 'U4', value: [r] })) },
+        ],
+      })) },
+    ],
+  });
+
+  host.disconnect();
+  await eq.close();
 });

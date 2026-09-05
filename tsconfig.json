@@ -9,7 +9,7 @@
     "types": ["node"],
     "strict": true,
     "declaration": true,
-    "sourceMap": true,
+    "sourceMap": false,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },

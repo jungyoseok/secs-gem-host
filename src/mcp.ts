@@ -115,5 +115,9 @@ export async function startMcpServer(): Promise<void> {
     null, 2,
   )));
 
+  // An MCP client that closes stdin means "stop": drop the link and exit rather than linger.
+  const bye = () => { host?.disconnect(); process.exit(0); };
+  process.stdin.on('close', bye).on('end', bye);
+
   await server.connect(new StdioServerTransport());
 }
