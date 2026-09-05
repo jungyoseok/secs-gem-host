@@ -10,9 +10,9 @@
   "files": ["dist", "models", "fixtures", "README.md", "LICENSE"],
   "engines": { "node": ">=20" },
   "scripts": {
-    "build": "tsc",
-    "test": "tsc && node --test \"dist/test/**/*.js\"",
-    "prepublishOnly": "tsc"
+    "build": "tsc && chmod +x dist/cli.js",
+    "test": "tsc && chmod +x dist/cli.js && node --test \"dist/test/**/*.js\"",
+    "prepublishOnly": "tsc && chmod +x dist/cli.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

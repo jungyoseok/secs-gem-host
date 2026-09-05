@@ -1,0 +1,116 @@
+#!/usr/bin/env node
+import fs from 'node:fs';
+import { parseArgs } from 'node:util';
+import { GemHost } from './host.js';
+import { renderReport, exitCode } from './report.js';
+import { runScenario, renderScenario, type ScenarioStep } from './scenario.js';
+import { loadModel } from './model.js';
+import { DEFAULT_TIMERS } from './hsms.js';
+
+const USAGE = `secs-gem-host — SECS/GEM host test tool
+
+  secs-gem-host connect <host:port> [options]
+  secs-gem-host mcp
+
+Options
+  --device-id <n>     HSMS session / device id (default 0)
+  --passive           listen instead of connecting (default: active)
+  --report            run the E30 startup and print the conformance table; exit 1 on any FAIL
+  --scenario <file>   run a JSON scenario after startup
+  --model <file>      equipment model for steps 6-8 (default: bundled models/default.json)
+  --quiet             do not print the decoded message log
+  --linktest <sec>    linktest interval, 0 disables (default 30)
+  --t3 --t5 --t6 --t7 --t8 <sec>   HSMS timers in seconds (default ${DEFAULT_TIMERS.t3} ${DEFAULT_TIMERS.t5} ${DEFAULT_TIMERS.t6} ${DEFAULT_TIMERS.t7} ${DEFAULT_TIMERS.t8})
+`;
+
+function fail(msg: string): never {
+  process.stderr.write(`${msg}\n`);
+  process.exit(2);
+}
+
+function parseTarget(s: string | undefined): { host: string; port: number } {
+  const m = /^\[?([^\]]+)\]?:(\d+)$/.exec(s ?? '');
+  if (!m) fail(`expected <host:port>, got ${JSON.stringify(s ?? '')}\n\n${USAGE}`);
+  return { host: m[1], port: Number(m[2]) };
+}
+
+async function main(): Promise<void> {
+  const { values, positionals } = parseArgs({
+    allowPositionals: true,
+    options: {
+      'device-id': { type: 'string', default: '0' },
+      passive: { type: 'boolean', default: false },
+      report: { type: 'boolean', default: false },
+      scenario: { type: 'string' },
+      model: { type: 'string' },
+      quiet: { type: 'boolean', default: false },
+      linktest: { type: 'string', default: '30' },
+      t3: { type: 'string', default: String(DEFAULT_TIMERS.t3) },
+      t5: { type: 'string', default: String(DEFAULT_TIMERS.t5) },
+      t6: { type: 'string', default: String(DEFAULT_TIMERS.t6) },
+      t7: { type: 'string', default: String(DEFAULT_TIMERS.t7) },
+      t8: { type: 'string', default: String(DEFAULT_TIMERS.t8) },
+      help: { type: 'boolean', default: false, short: 'h' },
+    },
+  });
+
+  const cmd = positionals[0];
+  if (values.help || !cmd) { process.stdout.write(USAGE); process.exit(cmd ? 0 : 2); }
+
+  if (cmd === 'mcp') {
+    const { startMcpServer } = await import('./mcp.js');
+    await startMcpServer();
+    return;
+  }
+
+  if (cmd !== 'connect') fail(`unknown command ${JSON.stringify(cmd)}\n\n${USAGE}`);
+
+  const { host, port } = parseTarget(positionals[1]);
+  const timers = {
+    t3: Number(values.t3), t5: Number(values.t5), t6: Number(values.t6),
+    t7: Number(values.t7), t8: Number(values.t8),
+  };
+
+  const gem = new GemHost({
+    host, port,
+    deviceId: Number(values['device-id']),
+    passive: values.passive,
+    linktestSec: Number(values.linktest),
+    timers,
+    model: values.model ? loadModel(values.model) : undefined,
+    onLog: values.quiet ? undefined : line => process.stdout.write(`${line}\n`),
+  });
+
+  try {
+    await gem.connect();
+  } catch (e) {
+    process.stderr.write(`connect failed: ${(e as Error).message}\n`);
+    process.exit(1);
+  }
+
+  const report = await gem.startup();
+  if (values.report) process.stdout.write(`${renderReport(report)}\n`);
+
+  let scenarioCode = 0;
+  if (values.scenario) {
+    const steps = JSON.parse(fs.readFileSync(values.scenario, 'utf8')) as ScenarioStep[];
+    const res = await runScenario(gem, steps);
+    process.stdout.write(`${renderScenario(res)}\n`);
+    scenarioCode = res.passed === res.total ? 0 : 1;
+  }
+
+  if (!values.report && !values.scenario) {
+    // Plain `connect`: stay up, print traffic, re-run startup on reconnect.
+    gem.autoReconnect(true);
+    process.on('SIGINT', () => { gem.disconnect(); process.exit(0); });
+    return;
+  }
+
+  gem.disconnect();
+  process.exit(exitCode(report) || scenarioCode);
+}
+
+main().catch(e => {
+  process.stderr.write(`${(e as Error).stack ?? e}\n`);
+  process.exit(1);
+});
