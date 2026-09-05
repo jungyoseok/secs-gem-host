@@ -152,6 +152,11 @@ export class FakeEquipment {
     ]), true);
   }
 
+  /** S1F13 from the equipment side: the equipment opens communication itself. */
+  sendS1F13(): void {
+    this.push(1, 13, item('L', undefined, [item('A', this.model.mdln), item('A', this.model.softrev)]), true);
+  }
+
   /** S5F1: L[ ALCD, ALID, ALTX ] */
   sendS5F1(alid: number, text: string): void {
     this.push(5, 1, item('L', undefined, [

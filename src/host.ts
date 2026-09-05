@@ -226,13 +226,12 @@ export class GemHost {
       this.flag(`${sf} received`);
       return;
     }
-    for (const w of [...this.waiters]) {
-      if (w.sf !== sf) continue;
-      if (w.ceid !== undefined && ceidOf(m) !== w.ceid) continue;
+    // A waiter consumes the event: exactly one of waitFor() and drainEvents() ever sees it.
+    const w = this.waiters.find(x => x.sf === sf && (x.ceid === undefined || ceidOf(m) === x.ceid));
+    if (w) {
       this.waiters.splice(this.waiters.indexOf(w), 1);
       w.resolve(m);
-    }
-    if ((m.stream === 6 && m.function === 11) || (m.stream === 5 && m.function === 1)) {
+    } else if ((m.stream === 6 && m.function === 11) || (m.stream === 5 && m.function === 1)) {
       this.events.push(m);
       if (this.events.length > 1000) this.events.shift();
     }
@@ -244,6 +243,8 @@ export class GemHost {
       if (!h) return;
       if (m.stream === 1 && m.function === 13) {
         h.reply(m, 14, item('L', undefined, [item('B', [0]), item('L', undefined, [item('A', HOST_MDLN), item('A', HOST_SOFTREV)])]));
+        // Comm is established either way round: the equipment may open it, not just startup().
+        this.commEstablished = true;
       } else if (m.stream === 1 && m.function === 1) {
         h.reply(m, 2, item('L', undefined, [item('A', HOST_MDLN), item('A', HOST_SOFTREV)]));
       } else if (m.stream === 5 && m.function === 1) {
@@ -272,6 +273,7 @@ export class GemHost {
     const limitMs = h.timers.t3 * 1000;
     const rows: ReportRow[] = [];
     this.commEstablished = false;
+    this.flags = [];        // a Report's flags describe this startup, not the whole session
 
     for (const s of STEPS) {
       const row: ReportRow = {
@@ -279,7 +281,9 @@ export class GemHost {
         elapsedMs: 0, limitMs, result: 'SKIP', note: '',
       };
       if (h.state !== 'SELECTED') {
-        row.note = 'not selected';
+        // The first step carries the failure so the report exits non-zero; the rest never ran.
+        row.result = rows.length === 0 ? 'FAIL' : 'SKIP';
+        row.note = 'HSMS not selected';
         rows.push(row);
         continue;
       }
@@ -334,9 +338,9 @@ export class GemHost {
   }
 
   waitFor(sf: string, opts: { ceid?: number; within?: number } = {}): Promise<HsmsMessage | null> {
-    const queued = this.events.find(m => `S${m.stream}F${m.function}` === sf
+    const i = this.events.findIndex(m => `S${m.stream}F${m.function}` === sf
       && (opts.ceid === undefined || ceidOf(m) === opts.ceid));
-    if (queued) return Promise.resolve(queued);
+    if (i >= 0) return Promise.resolve(this.events.splice(i, 1)[0]);
     return new Promise(resolve => {
       const w = { sf, ceid: opts.ceid, resolve };
       this.waiters.push(w);

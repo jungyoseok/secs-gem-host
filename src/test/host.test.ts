@@ -108,3 +108,106 @@ test('reconnect re-runs the startup', async () => {
   host.disconnect();
   await eq2.close();
 });
+
+/** Poll the fake's received-message log until `sf` has been seen `n` times. */
+async function waitSeen(eq: FakeEquipment, sf: string, n: number, ms = 1000): Promise<boolean> {
+  const until = Date.now() + ms;
+  while (Date.now() < until) {
+    if (eq.seen.filter(x => x === sf).length >= n) return true;
+    await new Promise(r => setTimeout(r, 5));
+  }
+  return false;
+}
+
+test('equipment-initiated S1F13 establishes comm, so later events are not "unsolicited"', async () => {
+  const eq = new FakeEquipment();
+  const port = await eq.listen();
+  const host = new GemHost({ host: '127.0.0.1', port, deviceId: 0, linktestSec: 0 });
+  await host.connect();
+  assert.equal(host.status().commEstablished, false);
+  eq.sendS1F13();
+  assert.ok(await waitSeen(eq, 'S1F14', 1), eq.seen.join(','));
+  assert.equal(host.status().commEstablished, true);
+  eq.sendS6F11(10001, 10001, [{ type: 'A', value: 'IDLE' }]);
+  await new Promise(r => setTimeout(r, 80));
+  assert.deepEqual(host.status().flags.filter(f => /unsolicited/.test(f)), []);
+  host.disconnect();
+  await eq.close();
+});
+
+test('waitFor consumes: two waits take two events, and the queue is left empty', async () => {
+  const eq = new FakeEquipment();
+  const port = await eq.listen();
+  const host = new GemHost({ host: '127.0.0.1', port, deviceId: 0, linktestSec: 0 });
+  await host.connect();
+  await host.startup();
+
+  const live = host.waitFor('S6F11', { ceid: 10001, within: 1000 });   // waiter first
+  eq.sendS6F11(10001, 10001, [{ type: 'A', value: 'ONE' }]);
+  const a = await live;
+  assert.ok(a, 'live waitFor timed out');
+
+  eq.sendS6F11(10001, 10002, [{ type: 'A', value: 'TWO' }]);           // event first
+  await new Promise(r => setTimeout(r, 80));
+  const b = await host.waitFor('S6F11', { ceid: 10001, within: 1000 });
+  assert.ok(b, 'queued waitFor timed out');
+  assert.notEqual(a!.systemBytes, b!.systemBytes, 'the second wait returned the first event again');
+  assert.equal(host.drainEvents().length, 0);
+
+  host.disconnect();
+  await eq.close();
+});
+
+test('dropAckOnce skips exactly one S6F12, and the next event is acked', async () => {
+  const eq = new FakeEquipment();
+  const port = await eq.listen();
+  const host = new GemHost({ host: '127.0.0.1', port, deviceId: 0, linktestSec: 0 });
+  await host.connect();
+  await host.startup();
+  host.dropAckOnce('S6F11');
+  eq.sendS6F11(10001, 10001, [{ type: 'A', value: 'IDLE' }]);
+  await new Promise(r => setTimeout(r, 120));
+  assert.equal(eq.seen.filter(x => x === 'S6F12').length, 0, eq.seen.join(','));
+  eq.sendS6F11(10001, 10001, [{ type: 'A', value: 'IDLE' }]);
+  assert.ok(await waitSeen(eq, 'S6F12', 1), eq.seen.join(','));
+  host.disconnect();
+  await eq.close();
+});
+
+test('sleepBeforeReply delays the next reply', async () => {
+  const eq = new FakeEquipment();
+  const port = await eq.listen();
+  const host = new GemHost({ host: '127.0.0.1', port, deviceId: 0, linktestSec: 0 });
+  await host.connect();
+  await host.startup();
+  host.sleepBeforeReply(200);
+  const t0 = Date.now();
+  eq.sendS6F11(10001, 10001, [{ type: 'A', value: 'IDLE' }]);
+  assert.ok(await waitSeen(eq, 'S6F12', 1), eq.seen.join(','));
+  const slow = Date.now() - t0;
+  assert.ok(slow >= 180, `expected a delayed ack, got ${slow}ms`);
+
+  const t1 = Date.now();                                   // the delay is once-only
+  eq.sendS6F11(10001, 10001, [{ type: 'A', value: 'IDLE' }]);
+  assert.ok(await waitSeen(eq, 'S6F12', 2), eq.seen.join(','));
+  assert.ok(Date.now() - t1 < 150, 'the delay did not clear after one reply');
+
+  host.disconnect();
+  await eq.close();
+});
+
+test('startup on a link that is not selected fails step 1 and skips the rest', async () => {
+  const eq = new FakeEquipment();
+  const port = await eq.listen();
+  const host = new GemHost({ host: '127.0.0.1', port, deviceId: 0, linktestSec: 0 });
+  await host.connect();
+  await eq.close();                                        // link drops before startup
+  await new Promise(r => setTimeout(r, 50));
+  const r = await host.startup();
+  assert.equal(r.passed, 0);
+  assert.equal(r.total, 10);
+  assert.equal(r.rows[0].result, 'FAIL');
+  assert.equal(r.rows[0].note, 'HSMS not selected');
+  assert.deepEqual([...new Set(r.rows.slice(1).map(x => x.result))], ['SKIP']);
+  host.disconnect();
+});
