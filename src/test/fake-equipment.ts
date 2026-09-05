@@ -1,4 +1,5 @@
 import net from 'node:net';
+import fs from 'node:fs';
 import {
   item, encodeItem, decodeItem, encodeHeader, decodePacket, type SecsItem,
 } from '../codec.js';
@@ -164,9 +165,49 @@ export class FakeEquipment {
     ]), true);
   }
 
+  /** Emit `rows` samples from a trace as S6F11 reports, one every dsperMs. */
+  replayTrace(trace: Trace, ceid: number, rptid: number, rows = trace.rows.length): void {
+    trace.rows.slice(0, rows).forEach((row, n) => {
+      const values = row.map((raw, i) => traceValue(trace.types[i], raw));
+      const emit = () => this.sendS6F11(ceid, rptid, values);
+      if (n === 0) emit();
+      else setTimeout(emit, n * trace.dsperMs).unref?.();
+    });
+  }
+
   private push(stream: number, func: number, body: SecsItem, wbit = false): void {
     this.write(encodeHeader(this.sessionId, stream, func, 0, 0, ++this.sys, encodeItem(body), wbit));
   }
 
   private write(b: Buffer): void { this.sock?.write(b); }
+}
+
+export type Trace = {
+  trid: number;
+  dsperMs: number;
+  totsmp: number;
+  repgsz: number;
+  types: string[];
+  vids: number[];
+  rows: string[][];
+};
+
+/** fixtures/traces/ sits two levels above dist/test/. */
+export function loadTrace(name: string): Trace {
+  const src = fs.readFileSync(new URL(`../../fixtures/traces/${name}`, import.meta.url), 'utf8');
+  const lines = src.split(/\r?\n/).filter(l => l.trim().length > 0).map(l => l.replace(/,\s*$/, '').split(','));
+  const [meta, types, vids, ...rows] = lines;
+  return {
+    trid: Number(meta[0]),
+    dsperMs: Number(meta[1]),
+    totsmp: Number(meta[2]),
+    repgsz: Number(meta[3]),
+    types,
+    vids: vids.map(Number),
+    rows: rows.map(r => r.slice(1)),
+  };
+}
+
+function traceValue(type: string, raw: string): SecsItem {
+  return type === 'A' ? item('A', raw) : item(type, [Number(raw)]);
 }
