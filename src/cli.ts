@@ -12,12 +12,13 @@ const USAGE = `secs-gem-host — SECS/GEM host test tool
   secs-gem-host connect <host:port> [startup|state] [options]
   secs-gem-host mcp
 
+The report kind is the positional after <host:port>: "startup" (default, 10 E30 startup
+steps) or "state" (6 E30 state rules, on a fresh connection).
+
 Options
   --device-id <n>     HSMS session / device id (default 0)
   --passive           listen instead of connecting (default: active)
-  --report [kind]     run a conformance report and print the table; exit 1 on any FAIL.
-                      kind is "startup" (default, 10 E30 startup steps) or "state" (6 E30
-                      state rules, on a fresh connection)
+  --report            run a conformance report and print the table; exit 1 on any FAIL
   --scenario <file>   run a JSON scenario after startup
   --model <file>      equipment model for steps 6-8 (default: bundled models/default.json)
   --quiet             do not print the decoded message log
