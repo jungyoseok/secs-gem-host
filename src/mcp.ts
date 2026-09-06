@@ -22,7 +22,7 @@ export async function postFeedback(slug: string, body: unknown): Promise<{ ok: b
 }
 
 export async function startMcpServer(): Promise<void> {
-  const server = new McpServer({ name: 'secs-gem-host', version: '0.1.0' });
+  const server = new McpServer({ name: 'secs-gem-host', version: '0.2.0' });
   let host: GemHost | null = null;
 
   server.registerTool('connect', {
@@ -92,14 +92,15 @@ export async function startMcpServer(): Promise<void> {
   });
 
   server.registerTool('startup', {
-    description: 'Run the E30 host startup sequence (10 steps) and return the conformance report as JSON plus the rendered table.',
-    inputSchema: {},
-  }, async () => {
+    description: 'Run a GEM conformance report and return it as JSON plus the rendered table. kind "startup" (default) runs the 10 E30 startup steps; kind "state" runs the 6 E30 state rules and must be used on a fresh connection, before anything else is sent.',
+    inputSchema: { kind: z.enum(['startup', 'state']).optional() },
+  }, async a => {
     if (!host) return err('not connected: call connect first');
-    const r = await host.startup();
+    const state = a.kind === 'state';
+    const r = state ? await host.stateReport() : await host.startup();
     return { content: [
       { type: 'text' as const, text: JSON.stringify(r, null, 2) },
-      { type: 'text' as const, text: renderReport(r) },
+      { type: 'text' as const, text: renderReport(r, state ? 'E30 state rules' : 'E30 startup') },
     ] };
   });
 

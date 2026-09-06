@@ -14,7 +14,7 @@ Node ≥ 20. MIT. No runtime dependency except the MCP SDK.
 ## Commands
 
 ```
-secs-gem-host connect <host:port> [options]
+secs-gem-host connect <host:port> [startup|state] [options]
 secs-gem-host mcp
 ```
 
@@ -22,7 +22,7 @@ secs-gem-host mcp
 |---|---|
 | `--device-id <n>` | HSMS session / device id (default `0`) |
 | `--passive` | listen for the equipment instead of connecting to it; the `<host:port>` positional is the bind address, so use `127.0.0.1:<port>` unless you need other machines to reach it |
-| `--report` | run the E30 startup, print the table, exit `1` on any FAIL |
+| `--report` | run a conformance report, print the table, exit `1` on any FAIL. The kind is the positional after `<host:port>`: `startup` (default) is the 10-step E30 startup; `state` is the 6 E30 state rules — S1F1 aborted with S1F0 before S1F13, S2F41 refused with HCACK 2 until S1F17 — and must run on a fresh connection |
 | `--scenario <file>` | run a JSON scenario after startup |
 | `--model <file>` | equipment model used by startup steps 6–8 (default: bundled `models/default.json`) |
 | `--quiet` | suppress the decoded message log |
@@ -117,7 +117,9 @@ or in `.mcp.json`:
 ```
 
 Tools: `connect`, `disconnect`, `send`, `startup`, `events`, `status`. `startup` returns
-the report object (rows, `passed`, `total`, `flags`) plus the rendered table.
+the report object (rows, `passed`, `total`, `flags`) plus the rendered table; its optional
+`kind` is `"startup"` (default) or `"state"` for the six E30 state rules, which needs a
+fresh connection.
 
 `scadathings_feedback` is the one tool that does not talk to equipment: it POSTs to
 scadathings.com to say whether one of its articles helped you solve a SECS/GEM problem, or
@@ -214,6 +216,14 @@ reply to any SECS-II data message. Every step therefore timed out at T3 (45 s), 
 run takes about 7.5 minutes; pass `--t3 5` to shorten it.
 
 ## Changelog
+
+### 0.2.0
+
+- **`--report state`**: six steps that score the E30 state rules instead of the startup
+  sequence. Run on a fresh connection: S1F1 must come back as S1F0 before S1F13, and S2F41
+  must be refused (HCACK ≠ 0) until S1F17 has put the tool ON-LINE REMOTE. `secs-gem-host
+  connect 127.0.0.1:5501 state --report`.
+- The MCP `startup` tool takes `kind: "startup" | "state"`.
 
 ### 0.1.1
 

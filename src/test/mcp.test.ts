@@ -65,6 +65,12 @@ test('the MCP server lists its tools and runs the startup', async () => {
   assert.equal(report.passed, 10);
   assert.equal(report.rows[0].sent, 'S1F13');
 
+  const stateRun = await rpc.call(9, 'tools/call', { name: 'startup', arguments: { kind: 'state' } });
+  const stateReport = JSON.parse(stateRun.result.content[0].text);
+  assert.equal(stateReport.total, 6);
+  assert.equal(stateReport.rows[0].sent, 'S1F1');
+  assert.match(stateRun.result.content[1].text, /E30 state rules: \d\/6 passed/);
+
   const sent = await rpc.call(5, 'tools/call', {
     name: 'send',
     arguments: { stream: 2, function: 41, body: { type: 'L', children: [{ type: 'A', value: 'START' }, { type: 'L', children: [] }] } },
