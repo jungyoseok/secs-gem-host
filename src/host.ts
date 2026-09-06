@@ -187,6 +187,65 @@ const STEPS: StepSpec[] = [
   },
 ];
 
+/** The RCMD every state step uses: L[ A "START", L[] ]. */
+const RCMD_START = item('L', undefined, [item('A', 'START'), item('L', undefined, [])]);
+
+/**
+ * The E30 state rules, scored on a FRESH connection — Select done, nothing else sent.
+ * Steps 1 and 4 are the two that bite on real equipment: a message before S1F13 is aborted,
+ * and S2F41 is refused until the tool is ON-LINE REMOTE.
+ */
+const STATE_STEPS: StepSpec[] = [
+  {
+    step: '1', sent: 'S1F1', expected: 'S1F0', stream: 1, func: 1, expectFunc: 0,
+    // E5: S1F1 is header-only. Before S1F13 the equipment must abort it, not answer it.
+    body: () => null,
+    check: () => ({ ok: true, note: 'aborted before S1F13' }),
+  },
+  {
+    step: '2', sent: 'S1F13', expected: 'S1F14', stream: 1, func: 13, expectFunc: 14,
+    body: () => item('L', undefined, [item('A', HOST_MDLN), item('A', HOST_SOFTREV)]),
+    check: rsp => {
+      const a = ackByte(rsp);
+      return a === 0 ? { ok: true, note: '' } : { ok: false, note: `COMMACK ${a}` };
+    },
+  },
+  {
+    step: '3', sent: 'S1F1', expected: 'S1F2', stream: 1, func: 1, expectFunc: 2,
+    body: () => null,
+    check: rsp => rsp.body?.type === 'L'
+      ? { ok: true, note: `${rsp.body.children!.length} items` }
+      : { ok: false, note: `body is ${rsp.body?.type ?? 'empty'}, expected L` },
+  },
+  {
+    step: '4', sent: 'S2F41', expected: 'S2F42', stream: 2, func: 41, expectFunc: 42,
+    body: () => RCMD_START,
+    check: rsp => {
+      const a = ackByte(rsp);
+      if (a === null) return { ok: false, note: 'no HCACK byte in S2F42' };
+      return a === 0
+        ? { ok: false, note: 'HCACK 0 — tool was already ON-LINE REMOTE; put it OFF-LINE and rerun' }
+        : { ok: true, note: `HCACK ${a} while not ON-LINE REMOTE` };
+    },
+  },
+  {
+    step: '5', sent: 'S1F17', expected: 'S1F18', stream: 1, func: 17, expectFunc: 18,
+    body: () => null,
+    check: rsp => {
+      const a = ackByte(rsp);
+      return a === 0 || a === 2 ? { ok: true, note: '' } : { ok: false, note: `ONLACK ${a}` };
+    },
+  },
+  {
+    step: '6', sent: 'S2F41', expected: 'S2F42', stream: 2, func: 41, expectFunc: 42,
+    body: () => RCMD_START,
+    check: rsp => {
+      const a = ackByte(rsp);
+      return a === 0 ? { ok: true, note: 'accepted ON-LINE REMOTE' } : { ok: false, note: `HCACK ${a}` };
+    },
+  },
+];
+
 export class GemHost {
   readonly model: Model;
   /** SVIDs the equipment listed in S1F12 (step 4), so steps 6-8 can explain a DRACK/LRACK. */
@@ -297,7 +356,12 @@ export class GemHost {
     } else send();
   }
 
-  async startup(): Promise<Report> {
+  async startup(): Promise<Report> { return this.runSteps(STEPS); }
+
+  /** The E30 state rules; run it on a fresh connection, before anything else is sent. */
+  async stateReport(): Promise<Report> { return this.runSteps(STATE_STEPS); }
+
+  private async runSteps(steps: StepSpec[]): Promise<Report> {
     const h = this.hsms;
     if (!h) throw new Error('not connected: call connect() first');
     const limitMs = h.timers.t3 * 1000;
@@ -305,7 +369,7 @@ export class GemHost {
     this.commEstablished = false;
     this.flags = [];        // a Report's flags describe this startup, not the whole session
 
-    for (const s of STEPS) {
+    for (const s of steps) {
       const row: ReportRow = {
         step: s.step, sent: s.sent, expected: s.expected, got: '-', ack: '-',
         elapsedMs: 0, limitMs, result: 'SKIP', note: '',
@@ -319,7 +383,7 @@ export class GemHost {
       }
       const t0 = Date.now();
       try {
-        if (s.step === '6' && this.lastSvids.length) {
+        if (s.sent === 'S2F33' && this.lastSvids.length) {
           const have = new Set(this.lastSvids.map(v => v.id));
           const miss = [...new Set(this.model.reports.flatMap(r => r.vids))].filter(v => !have.has(v));
           if (miss.length) this.flag(`model VIDs not in equipment SVID list: ${miss.join(', ')}`);
@@ -343,8 +407,8 @@ export class GemHost {
           row.result = c.ok ? 'PASS' : 'FAIL';
           row.note += c.note;
         }
-        if (s.step === '1' && row.result === 'PASS') this.commEstablished = true;
-        if (s.step === '4' && row.result === 'PASS') this.lastSvids = svidsOf(rsp);
+        if (s.sent === 'S1F13' && row.result === 'PASS') this.commEstablished = true;
+        if (s.sent === 'S1F11' && row.result === 'PASS') this.lastSvids = svidsOf(rsp);
       } catch (e) {
         row.elapsedMs = Date.now() - t0;
         row.result = 'FAIL';

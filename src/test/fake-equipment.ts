@@ -20,6 +20,7 @@ export type Knobs = {
   s1f12Empty?: boolean;    // S1F12 namelist is empty
   s2f30NotList?: boolean;  // S2F30 body is not a list
   silentOn?: string;       // never answer this "S<n>F<n>", to force a T3 expiry
+  stateAware?: boolean;    // enforce the E30 core: abort before S1F13, refuse S2F41 unless ON-LINE REMOTE
 };
 
 export class FakeEquipment {
@@ -32,6 +33,8 @@ export class FakeEquipment {
   private sock: net.Socket | null = null;
   private sessionId = 0;
   private sys = 5000;
+  private comm: 'NOT COMMUNICATING' | 'COMMUNICATING' = 'NOT COMMUNICATING';
+  private control: 'OFF-LINE' | 'ON-LINE LOCAL' | 'ON-LINE REMOTE' = 'OFF-LINE';
 
   constructor(private knobs: Knobs = {}, private model: Model = loadModel()) {}
 
@@ -59,6 +62,7 @@ export class FakeEquipment {
 
   private attach(sock: net.Socket): void {
     this.sock = sock;
+    this.comm = 'NOT COMMUNICATING';        // E30: a new HSMS connection has never communicated
     sock.setNoDelay(true);
     let acc = Buffer.alloc(0);
     sock.on('error', () => {});
@@ -97,14 +101,33 @@ export class FakeEquipment {
     if (p.body.length) { try { body = decodeItem(p.body).item; } catch { body = null; } }
     this.bodies[sf] = body;
     if (this.knobs.silentOn === sf) return;
-    const rsp = this.answer(p.stream, p.function, body);
+    const gated = this.knobs.stateAware ? this.gate(p.stream, p.function) : null;
+    const rsp = gated ?? this.answer(p.stream, p.function, body);
     if (!rsp || !p.wbit) return;
-    const emit = () => this.write(encodeHeader(p.sessionId, p.stream, rsp.func, 0, 0, p.systemBytes, encodeItem(rsp.body)));
+    if (this.knobs.stateAware && !gated) {
+      if (p.stream === 1 && p.function === 13) this.comm = 'COMMUNICATING';
+      if (p.stream === 1 && p.function === 17) this.control = 'ON-LINE REMOTE';
+      if (p.stream === 1 && p.function === 15) this.control = 'OFF-LINE';
+    }
+    const emit = () => this.write(encodeHeader(
+      p.sessionId, p.stream, rsp.func, 0, 0, p.systemBytes,
+      rsp.body ? encodeItem(rsp.body) : Buffer.alloc(0),
+    ));
     if (this.knobs.delayMs) setTimeout(emit, this.knobs.delayMs);
     else emit();
   }
 
-  private answer(s: number, f: number, _body: SecsItem | null): { func: number; body: SecsItem } | null {
+  /** E30 core, only with knobs.stateAware: what this equipment refuses, and with what. */
+  private gate(s: number, f: number): { func: number; body: SecsItem | null } | null {
+    if (this.comm === 'NOT COMMUNICATING' && !(s === 1 && f === 13)) return { func: 0, body: null };
+    if (s === 2 && f === 41 && this.control !== 'ON-LINE REMOTE') {
+      // E5 HCACK 2: cannot perform now.
+      return { func: 42, body: item('L', undefined, [item('B', [2]), item('L', undefined, [])]) };
+    }
+    return null;
+  }
+
+  private answer(s: number, f: number, _body: SecsItem | null): { func: number; body: SecsItem | null } | null {
     const k = this.knobs;
     const m = this.model;
     const ack = (n: number) => item('B', [n]);
@@ -121,6 +144,7 @@ export class FakeEquipment {
       };
     }
     if (s === 1 && f === 17) return { func: 18, body: ack(k.onlack ?? 0) };
+    if (s === 1 && f === 15) return { func: 16, body: ack(0) };      // OFLACK 0
     if (s === 1 && f === 3) {
       if (k.s1f4NotList) return { func: 4, body: item('A', 'not a list') };
       return { func: 4, body: item('L', undefined, m.svs.map(sv => svItem(sv) as SecsItem)) };

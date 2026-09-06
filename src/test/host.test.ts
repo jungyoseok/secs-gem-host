@@ -349,3 +349,33 @@ test('an equipment whose SVIDs differ is flagged, and LRACK 4 says to pass --mod
   const row = r.rows.find(x => x.step === '7')!;
   assert.match(row.note, /^LRACK 4 — CEID\/VID not defined at the equipment; pass --model <file> with the equipment's own IDs$/);
 });
+
+async function runState(knobs: Knobs = {}) {
+  const eq = new FakeEquipment(knobs);
+  const port = await eq.listen();
+  const host = new GemHost({ host: '127.0.0.1', port, deviceId: 0, linktestSec: 0 });
+  await host.connect();
+  const report = await host.stateReport();
+  host.disconnect();
+  await eq.close();
+  return report;
+}
+
+test('a state-aware equipment passes all 6 state steps', async () => {
+  const r = await runState({ stateAware: true });
+  assert.equal(r.total, 6);
+  assert.equal(r.passed, 6, JSON.stringify(r.rows.filter(x => x.result !== 'PASS'), null, 2));
+  assert.deepEqual(r.rows.map(x => x.sent), ['S1F1', 'S1F13', 'S1F1', 'S2F41', 'S1F17', 'S2F41']);
+  assert.deepEqual(r.rows.map(x => x.got), ['S1F0', 'S1F14', 'S1F2', 'S2F42', 'S1F18', 'S2F42']);
+  assert.equal(r.rows[3].ack, '2');
+  assert.equal(r.rows[5].ack, '0');
+});
+
+test('an equipment that ignores state fails step 1 and step 4', async () => {
+  const r = await runState();
+  const failed = r.rows.filter(x => x.result === 'FAIL');
+  assert.deepEqual(failed.map(x => x.step), ['1', '4'], JSON.stringify(r.rows, null, 2));
+  assert.equal(failed[0].got, 'S1F2');
+  assert.match(failed[1].note, /already ON-LINE REMOTE/);
+  assert.equal(r.passed, 4);
+});

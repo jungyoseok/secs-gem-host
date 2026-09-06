@@ -78,3 +78,20 @@ test('a fractional device id is a usage error', async () => {
   assert.equal(r.code, 2, r.out + r.err);
   assert.match(r.err, /device-id/);
 });
+
+test('connect --report state against a state-aware equipment exits 0 with 6 rows', async () => {
+  const eq = new FakeEquipment({ stateAware: true });
+  const port = await eq.listen();
+  const r = await runCli(['connect', `127.0.0.1:${port}`, '--report', 'state', '--linktest', '0']);
+  await eq.close();
+  assert.equal(r.code, 0, r.out + r.err);
+  assert.match(r.out, /E30 state rules: 6\/6 passed/);
+  assert.match(r.out, /^1 {4}S1F1 {4}S1F0 {4}S1F0/m);
+  assert.equal((r.out.match(/^\d+ {3,4}S\d/gm) ?? []).length, 6);
+});
+
+test('an unknown report kind is a usage error', async () => {
+  const r = await runCli(['connect', '127.0.0.1:1', '--report', 'bogus']);
+  assert.equal(r.code, 2, r.out + r.err);
+  assert.match(r.err, /startup or state/);
+});

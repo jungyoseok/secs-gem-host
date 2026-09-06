@@ -29,3 +29,7 @@ test('exit code is 1 when any row failed, 0 otherwise', () => {
   assert.equal(exitCode(sample), 1);
   assert.equal(exitCode({ ...sample, rows: [sample.rows[0]], passed: 1, total: 1 }), 0);
 });
+
+test('the title argument names the report in the footer', () => {
+  assert.match(renderReport(sample, 'E30 state rules'), /^E30 state rules: 1\/2 passed$/m);
+});

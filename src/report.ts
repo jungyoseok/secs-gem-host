@@ -6,7 +6,7 @@ const RULE = '-'.repeat(72);
 const row = (cells: string[]) =>
   cells.map((c, i) => (i < W.length ? c.padEnd(W[i]) : c)).join('').trimEnd();
 
-export function renderReport(r: Report): string {
+export function renderReport(r: Report, title = 'E30 startup'): string {
   return [
     row(['Step', 'Sent', 'Expect', 'Got', 'Ack', 'Time(ms)', 'Result', 'Note']),
     RULE,
@@ -14,7 +14,7 @@ export function renderReport(r: Report): string {
       x.step, x.sent, x.expected, x.got, x.ack, `${x.elapsedMs}/${x.limitMs}`, x.result, x.note,
     ])),
     RULE,
-    `E30 startup: ${r.passed}/${r.total} passed`,
+    `${title}: ${r.passed}/${r.total} passed`,
     ...r.flags.map(f => `flag: ${f}`),
   ].join('\n');
 }

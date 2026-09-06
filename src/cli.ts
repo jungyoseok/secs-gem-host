@@ -9,13 +9,15 @@ import { DEFAULT_TIMERS } from './hsms.js';
 
 const USAGE = `secs-gem-host — SECS/GEM host test tool
 
-  secs-gem-host connect <host:port> [options]
+  secs-gem-host connect <host:port> [startup|state] [options]
   secs-gem-host mcp
 
 Options
   --device-id <n>     HSMS session / device id (default 0)
   --passive           listen instead of connecting (default: active)
-  --report            run the E30 startup and print the conformance table; exit 1 on any FAIL
+  --report [kind]     run a conformance report and print the table; exit 1 on any FAIL.
+                      kind is "startup" (default, 10 E30 startup steps) or "state" (6 E30
+                      state rules, on a fresh connection)
   --scenario <file>   run a JSON scenario after startup
   --model <file>      equipment model for steps 6-8 (default: bundled models/default.json)
   --quiet             do not print the decoded message log
@@ -92,6 +94,12 @@ async function main(): Promise<void> {
   if (cmd !== 'connect') fail(`unknown command ${JSON.stringify(cmd)}\n\n${USAGE}`);
 
   const { host, port } = parseTarget(positionals[1]);
+  // `--report state` parses as the boolean flag plus a positional, which keeps `--report --quiet`
+  // working; parseArgs cannot express an optional option value.
+  const kind = positionals[2] ?? 'startup';
+  if (kind !== 'startup' && kind !== 'state') {
+    fail(`report kind must be startup or state, got ${JSON.stringify(kind)}\n\n${USAGE}`);
+  }
   const steps = values.scenario ? loadScenario(values.scenario) : null;
   const timers = {
     t3: numFlag('t3', values.t3, true), t5: numFlag('t5', values.t5, true),
@@ -118,8 +126,10 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const report = await gem.startup();
-  if (values.report) process.stdout.write(`${renderReport(report)}\n`);
+  const report = kind === 'state' ? await gem.stateReport() : await gem.startup();
+  if (values.report) {
+    process.stdout.write(`${renderReport(report, kind === 'state' ? 'E30 state rules' : 'E30 startup')}\n`);
+  }
 
   let scenarioCode = 0;
   if (steps) {
