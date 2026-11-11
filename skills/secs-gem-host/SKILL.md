@@ -1,6 +1,6 @@
 ---
 name: secs-gem-host
-description: Test SECS/GEM equipment software as a host over HSMS. Runs the SEMI E30 startup sequence or the E30 state rules and gives a PASS/FAIL table, sends any SxFy message, runs JSON scenarios, and reads collected events and alarms. Use when the user asks to test, debug or check GEM/HSMS equipment, a SECS/GEM simulator, S1F13, S2F33-S2F37, S6F11 events, T3 timeouts, or E30/E37 conformance.
+description: Use when the user asks to test, debug or check SECS/GEM equipment software or a GEM simulator as the host over HSMS - E30 startup or state-rule conformance, sending an SxFy such as S1F13 or S2F41 remote commands, reading S6F11 events or S5F1 alarms, T3 timeouts, SxF0 aborts, DRACK/LRACK/ERACK errors, JSON test scenarios, or E30/E37 conformance.
 ---
 
 # secs-gem-host
@@ -43,9 +43,16 @@ Node 20 or newer is needed. Other agents: run `npx -y secs-gem-host mcp` as a st
      equipment's own SVIDs, RPTIDs, CEIDs and ALIDs; reconnect with `connect` `model: "<file>"`.
    - S9Fx received, W-bit on a reply, wrong system bytes: real equipment defects. Report them.
 4. To test a behaviour (a remote command, an event), use `send` (`stream`, `function`,
-   `body`) and then `events`. Item-tree body: `{ "type": "L", "children": [ { "type": "A", "value": "START" } ] }`.
+   `body`) and then `events`. A new connection is NOT COMMUNICATING: E30 equipment aborts
+   (SxF0) every message except S1F13. So run `startup` first (it sends S1F13 and S1F17), or
+   `send` S1F13 (body `{ "type": "L", "children": [] }`) and then S1F17 (no body) yourself.
+   S2F41 needs ON-LINE REMOTE: HCACK 2 means the operator must set the tool to REMOTE. Item-tree body: `{ "type": "L", "children": [ { "type": "A", "value": "START" } ] }`.
    Types: `L B BOOLEAN A J I1 I2 I4 I8 U1 U2 U4 U8 F4 F8`; scalar values are arrays, `A`/`J` take a string.
 5. `disconnect` when done.
+
+JSON scenarios (`send` / `expect` / `drop-ack` steps) run only from the CLI, not over MCP:
+`npx -y secs-gem-host connect <host:port> --device-id <n> --scenario <file.json>`.
+Exit code 1 means a startup step or a scenario step failed. The format is in the README.
 
 ## Safety
 
